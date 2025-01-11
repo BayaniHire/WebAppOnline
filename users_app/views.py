@@ -64,11 +64,14 @@ from django.db.models import F, Value
 from django.db.models.functions import Coalesce
 from functools import wraps
 from django.views.decorators.cache import never_cache
+import logging
+
+logger = logging.getLogger(__name__)
 
 def role_required(*allowed_roles):
     def decorator(view_func):
         @wraps(view_func)
-        @never_cache 
+        @never_cache
         def _wrapped_view(request, *args, **kwargs):
             # Check if the user is logged in first
             if 'account_id' not in request.session:
@@ -93,10 +96,10 @@ def role_required(*allowed_roles):
                 request.session.flush()
                 messages.error(request, "Your account was not found or is no longer active.")
                 return HttpResponseRedirect(reverse('login'))
-            
+
             # If all checks pass, proceed to the view
             return view_func(request, *args, **kwargs)
-        
+
         return _wrapped_view
     return decorator
 
@@ -111,7 +114,12 @@ def Index(request):
     return render(request, "index.html")
 
 def login(request):
-    return render(request, "logIn.html")
+    template_name = 'logIn.html'
+    try:
+        return render(request, template_name)
+    except Exception as e:
+        logger.error(f"Error rendering template {template_name}: {e}")
+        raise
 
 def Registration(request):
     return render(request, "registration.html")
@@ -130,7 +138,7 @@ def Security(request):
 
 
 ######################INTERVIEWER###########################
-@role_required('interviewer') 
+@role_required('interviewer')
 def interviewer_applicants(request):
     # Get the interviewer's account ID from the session (assuming session is properly set after login)
     account_id = request.session.get('account_id')
@@ -163,7 +171,7 @@ def interviewer_applicants(request):
 
     return render(request, 'Applicants.html', {'applicants': applicants_data})
 
-@role_required('interviewer') 
+@role_required('interviewer')
 def interviewer_appointments(request):
     # Get the account ID from the session
     account_id = request.session.get('account_id')
@@ -183,12 +191,12 @@ def interviewer_appointments(request):
     }
     return render(request, 'Appointments.html', context)
 
-@role_required('interviewer') 
-def interviewer_editfeedback(request):    
+@role_required('interviewer')
+def interviewer_editfeedback(request):
     return render(request, 'EditFeedback.html')
 
-@role_required('interviewer') 
-def interviewer_feedback(request):      
+@role_required('interviewer')
+def interviewer_feedback(request):
     if request.method == 'POST':
         # Assuming you have fields in your form named 'applicant_id', 'status', and 'feedback'
         applicant_id = request.POST.get('applicant_id')
@@ -210,7 +218,7 @@ def interviewer_feedback(request):
 
 
 # WEIN BAGO#
-@role_required('interviewer') 
+@role_required('interviewer')
 def interviewerhistory(request):
     user_id = request.session.get('user_id')  # Using 'user_id' for consistency
     if not user_id:
@@ -222,7 +230,7 @@ def interviewerhistory(request):
         interviewer_feedback__isnull=False,
         interviewer_feedback_status__in=['PASSED', 'FAILED']
     ).select_related('account', 'job', 'interview_applicant_id').order_by('-submission_date')
-    
+
     # Prepare the applicants' data for the template
     applicants_data = [
         {
@@ -238,11 +246,11 @@ def interviewerhistory(request):
     return render(request, 'History.html', {'applicants': applicants_data})
 #WEIN BAGO#
 
-@role_required('interviewer') 
-def interviewer_profile(request):        
+@role_required('interviewer')
+def interviewer_profile(request):
     return render(request, 'Profile.html')
 
-@role_required('interviewer') 
+@role_required('interviewer')
 def interviewer_viewinfo(request, applicant_status_id):
     # Fetch the applicant using the provided applicant_status_id
     applicant = get_object_or_404(ListOfApplicantsWithStatusAndCredentials, applicant_status_id=applicant_status_id)
@@ -269,7 +277,7 @@ def interviewer_viewinfo(request, applicant_status_id):
             end_index = start_index + individual_file_size if i < len(filenames) - 1 else total_files_size
             file_data = applicant.credentials[start_index:end_index]
             encoded_file = base64.b64encode(file_data).decode('utf-8')
-            
+
             uploaded_files.append({
                 'data': encoded_file,
                 'metadata': filename,
@@ -302,7 +310,7 @@ def interviewer_viewinfo(request, applicant_status_id):
 
 
 ###################APPLICANT############################
-@role_required('applicant') 
+@role_required('applicant')
 def applicant_homepage(request):
     jobs = JobDetailsAndRequirements.objects.filter(job_status='ACTIVE')  # Fetch only active jobs
     context = {
@@ -310,7 +318,7 @@ def applicant_homepage(request):
     }
     return render(request, 'Applicant_homepage.html', context)
 
-@role_required('applicant') 
+@role_required('applicant')
 def applicant_jobreq(request, job_id):
     job_details = get_object_or_404(JobDetailsAndRequirements, job_id=job_id)
 
@@ -331,8 +339,8 @@ def applicant_jobreq(request, job_id):
 
     return render(request, 'Applicant_JobReq.html', context)
 
-@role_required('applicant') 
-def applicant_fileupload(request, job_id):        
+@role_required('applicant')
+def applicant_fileupload(request, job_id):
     uploaded_files_display = []
 
     if request.method == 'GET':
@@ -347,13 +355,13 @@ def applicant_fileupload(request, job_id):
 
         if not uploaded_files:
             return JsonResponse({"error": "No files selected."}, status=400)
-        
+
         for uploaded_file in uploaded_files:
             if uploaded_file.size > max_file_size:
                 return JsonResponse(
                     {"error": f"File '{uploaded_file.name}' exceeds the 64MB size limit."}, status=400
                 )
-            
+
             if uploaded_file.content_type not in allowed_file_types:
                 return JsonResponse(
                     {"error": f"File '{uploaded_file.name}' is not a valid format. Only PDF, PNG, and JPEG are allowed."}, status=400
@@ -378,13 +386,13 @@ def applicant_fileupload(request, job_id):
             file_name = uploaded_file.name
             file_metadata_list.append(file_name)
             file_content = uploaded_file.read()
-            
+
             # Debug: Log the file name and size
             print(f"Processing file: {file_name} with size: {len(file_content)} bytes")
 
             # Add the file content and a unique separator
             combined_file_content += file_content + b'<SEPARATOR>'
-        
+
         # Remove the last separator if added
         if combined_file_content.endswith(b'<SEPARATOR>'):
             combined_file_content = combined_file_content[:-len(b'<SEPARATOR>')]
@@ -418,7 +426,7 @@ def applicant_fileupload(request, job_id):
 
 
 
-@role_required('applicant') 
+@role_required('applicant')
 def applicant_applicationstatus(request):
     # Ensure the user is logged in using session data
     account_id = request.session.get('account_id')
@@ -432,7 +440,7 @@ def applicant_applicationstatus(request):
     applications = (
         ListOfApplicantsWithStatusAndCredentials.objects
         .filter(account=account)
-        .select_related('job', 'interview_applicant_id') 
+        .select_related('job', 'interview_applicant_id')
         .order_by('-submission_date') # Ensure you can access job-related fields
         .annotate(
             # Use Subquery to get the interview date for each application
@@ -462,7 +470,7 @@ def applicant_applicationstatus(request):
 
     return render(request, 'Applicant_Applicationstatus.html', context)
 
-@role_required('applicant') 
+@role_required('applicant')
 def applicant_viewfileupload(request, applicant_status_id):
     # Retrieve the application details using the applicant_status_id
     application = get_object_or_404(ListOfApplicantsWithStatusAndCredentials, applicant_status_id=applicant_status_id)
@@ -486,11 +494,11 @@ def applicant_viewfileupload(request, applicant_status_id):
             # Calculate the start and end index for each file's BLOB data
             start_index = i * individual_file_size
             end_index = start_index + individual_file_size if i < len(filenames) - 1 else total_files_size
-            
+
             # Extract the specific file's binary data
             file_data = application.credentials[start_index:end_index]
             encoded_file = base64.b64encode(file_data).decode('utf-8')  # Base64 encode the specific part
-            
+
             uploaded_files.append({
                 'data': encoded_file,
                 'metadata': filename,  # Use the individual filename
@@ -520,7 +528,7 @@ def applicant_viewfileupload(request, applicant_status_id):
 
     return render(request, 'Applicant_Viewfileupload.html', context)
 
-@role_required('applicant') 
+@role_required('applicant')
 def applicant_interviewdetails(request, applicant_status_id):
     # Fetch interview details for the given applicant
     applicant = get_object_or_404(ListOfApplicantsWithStatusAndCredentials, applicant_status_id=applicant_status_id)
@@ -552,7 +560,7 @@ def applicant_interviewdetails(request, applicant_status_id):
             'show_not_qualified_message': True
         })
 
-@role_required('applicant') 
+@role_required('applicant')
 def applicant_profile(request):
     account_id = request.session.get('account_id')
     user = get_object_or_404(AccountInformation, account_id=account_id)
@@ -562,7 +570,7 @@ def applicant_profile(request):
         current_password = request.POST.get('current_password')
         new_password = request.POST.get('new_password')
         confirm_password = request.POST.get('confirm_password')
-        
+
         # Check if the current password matches
         if user.password != current_password:
             messages.error(request, "Current password is incorrect.")
@@ -586,13 +594,13 @@ def applicant_profile(request):
     return render(request, 'Applicant_profile.html', context)
 
 ###################APPLICANT############################
-@role_required('applicant') 
+@role_required('applicant')
 def generate_pdf(request, applicant_status_id):
     # Ensure the user is logged in
     account_id = request.session.get('account_id')
     if not account_id:
         return HttpResponse("You must be logged in to generate a PDF.", status=403)
-    
+
     user = get_object_or_404(AccountInformation, account_id=account_id)
 
     # Fetch the specific qualified job application
@@ -623,7 +631,7 @@ def generate_pdf(request, applicant_status_id):
 
     # Generate dynamic file name: "{last_name}_Application_{job_title}.pdf"
     file_name = f"{user.last_name or 'Applicant'}_Application.pdf"
-    
+
 
     # Context for the template
     context = {
@@ -657,7 +665,7 @@ def generate_pdf(request, applicant_status_id):
 
 
 ###################GENERATE PDF SYSTEM ############################
-@role_required('admin') 
+@role_required('admin')
 def generate_system_pdf(request):
     # Ensure the user is logged in
     account_id = request.session.get('account_id')
@@ -698,7 +706,7 @@ def generate_system_pdf(request):
     return response
 
 
-    
+
 
 
 
@@ -706,8 +714,8 @@ def generate_system_pdf(request):
 ##########################Admin###############################################
 logger = logging.getLogger(__name__)
 
-@role_required('admin') 
-def list_of_applicants(request):        
+@role_required('admin')
+def list_of_applicants(request):
     search_query = request.GET.get('search', '').strip()
     sort_type = request.GET.get('sort_type', '')
     sort_order = request.GET.get('sort_order', 'asc')
@@ -716,13 +724,13 @@ def list_of_applicants(request):
     rows_per_page = max(min(int(rows_param), 10), 1) if rows_param.isdigit() else 5
 
     query = (
-        Q(account__first_name__icontains=search_query) | 
-        Q(account__middle_name__icontains=search_query) | 
-        Q(account__last_name__icontains=search_query) | 
-        Q(job__job_company__icontains=search_query) | 
+        Q(account__first_name__icontains=search_query) |
+        Q(account__middle_name__icontains=search_query) |
+        Q(account__last_name__icontains=search_query) |
+        Q(job__job_company__icontains=search_query) |
         Q(job__job_title__icontains=search_query)
     )
-    
+
     if search_query:
         applicants = ListOfApplicantsWithStatusAndCredentials.objects.filter(query)
     else:
@@ -730,7 +738,7 @@ def list_of_applicants(request):
 
     if status_filter:
         applicants = applicants.filter(applicant_status=status_filter)
-    
+
     total_applicants_under_review = ListOfApplicantsWithStatusAndCredentials.objects.filter(applicant_status="UNDER REVIEW").count()
 
     # Handling sorting based on the type and order
@@ -773,7 +781,7 @@ def list_of_applicants(request):
     }
     return render(request, 'AdminView_1_Homepage_ListofApplicants.html', context)
 
-@role_required('admin') 
+@role_required('admin')
 def open_applicants(request, applicant_status_id):
     # Fetch the applicant using the provided applicant_status_id
     applicant = get_object_or_404(ListOfApplicantsWithStatusAndCredentials, applicant_status_id=applicant_status_id)
@@ -822,7 +830,7 @@ def open_applicants(request, applicant_status_id):
             end_index = start_index + individual_file_size if i < len(filenames) - 1 else total_files_size
             file_data = applicant.credentials[start_index:end_index]
             encoded_file = base64.b64encode(file_data).decode('utf-8')
-            
+
             uploaded_files.append({
                 'data': encoded_file,
                 'metadata': filename,
@@ -850,8 +858,8 @@ def open_applicants(request, applicant_status_id):
 
     return render(request, 'AdminView_1_1_OpenApplicants.html', context)
 
-@role_required('admin') 
-def viewing_files(request, file_name):        
+@role_required('admin')
+def viewing_files(request, file_name):
     # Construct the full file path
     file_path = os.path.join(settings.MEDIA_ROOT, file_name)
 
@@ -869,7 +877,7 @@ def viewing_files(request, file_name):
 
     return render(request, 'AdminView_1_2_ViewingFiles.html', context)
 
-@role_required('admin') 
+@role_required('admin')
 def list_of_jobs(request):
     search_query = request.GET.get('search', '').strip()
     sort_type = request.GET.get('sort', '')  # Default sort by job title ascending
@@ -913,7 +921,7 @@ def list_of_jobs(request):
 
     return render(request, 'AdminView_2_ListofJobs.html', context)
 
-@role_required('admin') 
+@role_required('admin')
 def edit_job_details(request, job_id):
     job = get_object_or_404(JobDetailsAndRequirements, pk=job_id)
 
@@ -964,7 +972,7 @@ def edit_job_details(request, job_id):
         'job_date': job_date,
     })
 
-@role_required('admin') 
+@role_required('admin')
 def create_job_details(request):
     # Store the current page as the "previous_page" in session
     if request.method == 'GET':
@@ -1030,8 +1038,8 @@ def create_job_details(request):
     today_date = date.today().strftime("%Y-%m-%d")  # Format today's date as YYYY-MM-DD
     return render(request, 'AdminView_2_2_CreateJobDetails.html', {'today_date': today_date})
 
-@role_required('admin') 
-def qualification(request):        
+@role_required('admin')
+def qualification(request):
     interviewers = InterviewStorage.objects.select_related('account')
     grouped_interviewers = {}
 
@@ -1070,7 +1078,7 @@ def qualification(request):
         # Capture the selected applicant and interviewer details
         selected_applicant_full_name = request.POST.get('selected_applicant_full_name')
         selected_job_details = request.POST.get('selected_job_details')
-        
+
         # Redirect to the send_schedule view with the selected data
         return redirect('send_schedule', applicant_name=selected_applicant_full_name, job_details=selected_job_details)
 
@@ -1078,8 +1086,8 @@ def qualification(request):
         'interviewers': interviewer_data,
         'applicants': applicant_data
     })
-    
-@role_required('admin') 
+
+@role_required('admin')
 def send_schedule(request):
     # Fetch all applicants who are set for interview
     applicants = ListOfApplicantsWithStatusAndCredentials.objects.filter(
@@ -1155,7 +1163,7 @@ def send_schedule(request):
     })
 
 
-@role_required('admin') 
+@role_required('admin')
 def confirm_send_schedule(request):
     if request.method == "POST":
         # Retrieve data from POST request
@@ -1193,7 +1201,7 @@ def confirm_send_schedule(request):
 
     return redirect('send_schedule')  # Redirect if method is not POST
 
-@role_required('admin') 
+@role_required('admin')
 def open_schedule_list(request):
     # Extract parameters
     interviewer_name = request.GET.get('interviewer', None)
@@ -1252,7 +1260,7 @@ def open_schedule_list(request):
 
     return render(request, 'AdminView_3_2_OpenScheduleList.html', context)
 
-@role_required('admin') 
+@role_required('admin')
 def schedule(request):
     today = date.today()
     search_query_interviewer = request.GET.get('search_interviewer', '').strip()
@@ -1294,7 +1302,7 @@ def schedule(request):
                 url_params = urlencode(query_params)
                 url = f"{reverse('schedule')}?{url_params}"
                 return HttpResponseRedirect(url)
-        
+
         selected_interviewer = interviewers.filter(
             account__first_name__icontains=selected_interviewer_name.split()[0],
             account__last_name__icontains=selected_interviewer_name.split()[-1]
@@ -1334,7 +1342,7 @@ def schedule(request):
     }
     return render(request, 'AdminView_4_Schedule.html', context)
 
-@role_required('admin') 
+@role_required('admin')
 def view_schedule(request):
     search_query_schedule = request.GET.get('search_schedule', '').strip()
     sort_type = request.GET.get('sort_type', '')
@@ -1373,7 +1381,7 @@ def view_schedule(request):
     return render(request, 'AdminView_4_1_ViewSchedule.html', context)
 
 
-@role_required('admin') 
+@role_required('admin')
 def feedback(request):
     search_query = request.GET.get('search', '').strip()
     sort_type = request.GET.get('sort_name', '')
@@ -1410,7 +1418,7 @@ def feedback(request):
             sort_fields = [direction + 'job__job_title']
         else:
             sort_fields = [direction + 'submission_date']
-            
+
         applicants = applicants.order_by(*sort_fields)
 
     paginator = Paginator(applicants, rows_per_page)
@@ -1427,10 +1435,10 @@ def feedback(request):
     }
     return render(request, 'AdminView_5_Feedback.html', context)
 
-@role_required('admin') 
+@role_required('admin')
 def view_feedback(request, applicant_status_id):
     applicant = get_object_or_404(ListOfApplicantsWithStatusAndCredentials, pk=applicant_status_id)
-       
+
     if request.method == 'GET':
         if not applicant.applicant_status:
             applicant.applicant_status = "PASSED"
@@ -1460,15 +1468,15 @@ def view_feedback(request, applicant_status_id):
         'applicant_name': f"{applicant.account.first_name} {applicant.account.last_name}",
         'interview_status': applicant.interviewer_feedback_status,
         'interview_feedback': applicant.interviewer_feedback,
-        'applicant_status': applicant.applicant_status, 
+        'applicant_status': applicant.applicant_status,
         'applicant_status_id': applicant_status_id  # Needed to build the form action URL
     }
-    
+
     return render(request, 'AdminView_5_1_ViewFeedback.html', context)
 
 
-@role_required('admin') 
-def adminprofile(request):        
+@role_required('admin')
+def adminprofile(request):
     # Assuming the user's ID is stored in session
     account_id = request.session.get('account_id')
     user = get_object_or_404(AccountInformation, account_id=account_id)
@@ -1481,13 +1489,13 @@ def adminprofile(request):
     # Use a fallback if no applicant_status is found
     applicant_status_id = applicant_status.applicant_status_id if applicant_status else None
 
-    
+
     if request.method == "POST":
         # Change Password Logic
         current_password = request.POST.get('current_password')
         new_password = request.POST.get('new_password')
         confirm_password = request.POST.get('confirm_password')
-        
+
         # Check if the current password matches
         if user.password != current_password:
             messages.error(request, "Current password is incorrect.")
@@ -1512,7 +1520,7 @@ def adminprofile(request):
     return render(request, 'AdminView_6_Profile.html', context)
 
 
-@role_required('admin') 
+@role_required('admin')
 def add_accounts(request):
     if request.method == 'GET':
         referrer = request.META.get('HTTP_REFERER', '/list_of_applicants/')
@@ -1612,7 +1620,7 @@ def add_accounts(request):
                 account_status='new'  # Default status
             )
             account_storage.save()
-            
+
             # Generate a unique verification token
             token = uuid.uuid4()
             VerificationToken.objects.create(account=account_info, token=token)
@@ -1634,7 +1642,7 @@ def add_accounts(request):
     # Render the form for GET request
     return render(request, 'AdminView_6_2_AddAccounts.html', {})
 
-@role_required('admin') 
+@role_required('admin')
 def manage_accounts(request):
     # Fetch search, sort, and rows parameters from GET
     search_query = request.GET.get('search', '').strip()
@@ -1644,8 +1652,8 @@ def manage_accounts(request):
     rows_param = request.GET.get('rows', '5')
 
     base_url = request.build_absolute_uri('/manage_accounts/')
-    query_params = request.GET.dict() 
-        
+    query_params = request.GET.dict()
+
     # Set rows per page with a default of 5
     rows_per_page = max(min(int(rows_param), 15), 1) if rows_param.isdigit() else 5
 
@@ -1710,7 +1718,7 @@ def manage_accounts(request):
 #WEIN BAGO DAGDAG 11-11-2024
 from django.contrib import messages
 
-@role_required('interviewer') 
+@role_required('interviewer')
 def interviewer_feedback(request):
     account_id = request.session.get('account_id')
     if not account_id:
@@ -1743,8 +1751,8 @@ def interviewer_feedback(request):
 
     return render(request, 'Feedback.html', {'applicants': applicants})
 
-@role_required('interviewer') 
-def interviewer_editfeedback(request, applicant_status_id):        
+@role_required('interviewer')
+def interviewer_editfeedback(request, applicant_status_id):
     # Retrieve the applicant using the applicant_status_id
     applicant = ListOfApplicantsWithStatusAndCredentials.objects.get(applicant_status_id=applicant_status_id)
 
@@ -1782,7 +1790,7 @@ def interviewer_editfeedback(request, applicant_status_id):
     # Pass the applicant data to the template for pre-filling
     return render(request, 'EditFeedback.html', {'applicant': applicant})
 
-@role_required('interviewer') 
+@role_required('interviewer')
 def interviewer_applicants(request):
     # Get the interviewer's account ID from the session (assuming session is properly set after login)
     account_id = request.session.get('account_id')
@@ -1815,7 +1823,7 @@ def interviewer_applicants(request):
 
     return render(request, 'Applicants.html', {'applicants': applicants_data})
 
-@role_required('interviewer') 
+@role_required('interviewer')
 def interviewer_history(request):
     account_id = request.session.get('account_id')
     if not account_id:
@@ -1823,13 +1831,13 @@ def interviewer_history(request):
 
     # Retrieve interview sessions associated with the interviewer
     interviews = InterviewStorage.objects.filter(account_id=account_id)
-    
+
     # Include only applicants with feedback status 'PASSED' or 'FAILED'
     applicants_with_feedback = ListOfApplicantsWithStatusAndCredentials.objects.filter(
         interview_applicant_id__in=interviews,
         interviewer_feedback_status__in=['PASSED', 'FAILED']
     ).select_related('account', 'job', 'interview_applicant_id')
-    
+
     # Prepare the applicants' data for the template
     applicants_data = [
         {
@@ -1844,8 +1852,8 @@ def interviewer_history(request):
 
     return render(request, 'History.html', {'applicants': applicants_data})
 
-@role_required('interviewer') 
-def interviewer_profile(request):  
+@role_required('interviewer')
+def interviewer_profile(request):
     account_id = request.session.get('account_id')
     user = get_object_or_404(AccountInformation, account_id=account_id)
 
@@ -1854,7 +1862,7 @@ def interviewer_profile(request):
         current_password = request.POST.get('current_password')
         new_password = request.POST.get('new_password')
         confirm_password = request.POST.get('confirm_password')
-        
+
         # Check if the current password matches
         if user.password != current_password:
             messages.error(request, "Current password is incorrect.")
@@ -1884,7 +1892,7 @@ def login(request):
     if request.method == 'POST':
         username = request.POST.get('username').strip()
         password = request.POST.get('password').strip()
-        
+
         try:
             # Retrieve the account using the username and password
             account = AccountInformation.objects.get(username=username, password=password)
@@ -1892,7 +1900,7 @@ def login(request):
 
             # Check if the account is verified
             if not account.verified:
-                return render(request, 'login.html', {"message": "Account not verified. Please check your email for verification."})
+                return render(request, 'logIn.html', {"message": "Account not verified. Please check your email for verification."})
 
             # Retrieve account storage details (if applicable)
             account_storage = AccountStorage.objects.filter(account=account).first()
@@ -1904,7 +1912,7 @@ def login(request):
                     return redirect('Security')
 
                 elif account_storage.account_status == 'deactivated':
-                    return render(request, 'login.html', {"message": "Account is deactivated. Please contact support."})
+                    return render(request, 'logIn.html', {"message": "Account is deactivated. Please contact support."})
 
                 # Redirect based on role
                 request.session['account_id'] = account.account_id
@@ -1915,15 +1923,15 @@ def login(request):
                 elif account_storage.role == 'interviewer':
                     return redirect('INTappointments')
                 else:
-                    return render(request, 'login.html', {"message": "Invalid role. Access denied."})
+                    return render(request, 'logIn.html', {"message": "Invalid role. Access denied."})
             else:
-                return render(request, 'login.html', {"message": "Incorrect username or password."})
-        
+                return render(request, 'logIn.html', {"message": "Incorrect username or password."})
+
         except AccountInformation.DoesNotExist:
             # If username or password does not match, show error message
-            return render(request, 'login.html', {"message": "Incorrect username or password."})
+            return render(request, 'logIn.html', {"message": "Incorrect username or password."})
 
-    return render(request, 'login.html')
+    return render(request, 'logIn.html')
 
 
 def Registration(request):
@@ -1986,7 +1994,7 @@ def verify_email(request, token):
                 send_success_email(account)  # Applicant email
         except AccountStorage.DoesNotExist:
             print(f"No AccountStorage found for account ID: {account.account_id}")
-            return HttpResponse("Account role information is missing.", status=400)    
+            return HttpResponse("Account role information is missing.", status=400)
 
         # Redirect to a success page or login page
         return redirect('login')
@@ -2099,7 +2107,7 @@ def send_success_email_2(account):
         print(f"Error sending email: {e}")
         raise
 
-    
+
 def change_password(request):
     # Only allow POST requests and check if account_id exists in the session
     if request.method == 'POST' and 'account_id' in request.session:
@@ -2125,12 +2133,12 @@ def change_password(request):
             # Update the account's password
             account.password = new_password
             account.save()
-            
+
             # Update account status in AccountStorage
             account_storage = AccountStorage.objects.get(account=account)
             account_storage.account_status = 'active'
             account_storage.save()
-            
+
             # Redirect based on role after password change
             if account_storage.role == 'applicant':
                 return redirect('homepage')
@@ -2139,11 +2147,11 @@ def change_password(request):
             elif account_storage.role == 'interviewer':
                 return redirect('INTappointments')
             else:
-                return render(request, 'login.html', {"message": "Invalid role. Access denied."})
+                return render(request, 'logIn.html', {"message": "Invalid role. Access denied."})
         else:
             messages.error(request, "Passwords do not match. Please try again.")
             return redirect('Security')
-        
+
 
     return redirect('login')
 ######################ito yung udpate password sa mga account#######################################################################3
@@ -2188,7 +2196,7 @@ def update_password(request):
 
 def Index(request):  # Capitalize the function name to match the URL pattern
     companies = JobDetailsAndRequirements.objects.values('job_company').annotate(job_count=models.Count('job_id'))
-    
+
     context = {
         'companies': companies
     }
@@ -2258,7 +2266,7 @@ def generate_otp(email):
 
     # Generate a new OTP
     otp = ''.join(random.choices(string.digits, k=2)) + ''.join(random.choices(string.ascii_letters, k=4))
-    
+
     # Create a new OTP record
     otp_record = OTPVerification.objects.create(
         email=email,
@@ -2269,7 +2277,7 @@ def generate_otp(email):
     return {"success": True, "otp": otp_record.otp}
 
 
-    
+
 
 def force_change_password(request):
     return render(request, 'force_change_password.html')
@@ -2282,7 +2290,7 @@ def send_otp_to_email(email, otp):
 
     otp = otp_data["otp"]
 
-    
+
     # Construct the email subject and HTML content
     subject = 'Your OTP Code for BayaniHire'
     html_content = f"""
@@ -2293,7 +2301,7 @@ def send_otp_to_email(email, otp):
                 <p style="color: #000000;">Dear User,</p>
                 <p style="color:  #000000;">Your One-Time Password (OTP) is:</p>
                 <h2 style="color: red;">{otp}</h2>
-                <p style="color:  #000000;">Please use this OTP to complete your login process. Do not share this code with anyone. If you need a new OTP, you can click the 
+                <p style="color:  #000000;">Please use this OTP to complete your login process. Do not share this code with anyone. If you need a new OTP, you can click the
                 "Resend OTP Code" link in the system. Please note that if you do not click the link, the OTP code will remain the same.</p>
                 <p style="color:  #000000;">Thank you for using BayaniHire!</p>
             </div>
@@ -2337,7 +2345,7 @@ def forgot_password(request):
 
         # Send the OTP to the user's email
         send_otp_to_email(email, otp_data["otp"])
-        
+
         # Calculate remaining time for the countdown
         remaining_time = 1800  # 30 minutes in seconds
 
@@ -2372,7 +2380,7 @@ def resend_otp(request):
                 'error': 'Failed to generate OTP. Please try again.'
             })
     else:
-        return render(request, 'login.html', {
+        return render(request, 'logIn.html', {
             'error': 'Session expired. Please log in again.'
         })
 
@@ -2380,7 +2388,7 @@ def resend_otp(request):
 
 
 
-    
+
 @csrf_exempt
 def reset_password_view(request):
     if request.method == 'POST':
@@ -2405,12 +2413,12 @@ def reset_password_view(request):
             # Check if the new password is the same as the old password
             if account.password == new_password:
                 return JsonResponse({"success": False, "error": "This is your old password, make a new one."})
-                
+
             account.password = new_password  # Save plain text as per your requirement
             account.save()
-            
+
             return JsonResponse({"success": True, "message": "Password updated successfully!"})
-            
+
         except AccountInformation.DoesNotExist:
             return JsonResponse({"success": False, "error": "Account not found."})
 
@@ -2418,11 +2426,11 @@ def reset_password_view(request):
 
 
 
-    
-    
-    
 
-    
+
+
+
+
 
 
 
